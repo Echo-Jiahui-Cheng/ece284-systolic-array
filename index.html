@@ -73,7 +73,7 @@ svg text{font-family:var(--hand);fill:var(--ink)}
     <div class="phases" id="proc"></div>
   </aside>
   <main class="main">
-    <div class="board"><svg id="svg" viewBox="0 0 1560 975" role="img" aria-label="Systolic array dataflow animation">
+    <div class="board"><svg id="svg" viewBox="0 0 1560 1050" role="img" aria-label="Systolic array dataflow animation">
       <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3d4450"/></marker></defs>
       <g id="stat"></g><g id="ten"></g><g id="dyn"></g></svg></div>
   </main>
@@ -166,8 +166,8 @@ WS.lines=[
   {t:'o[Cout, o_nij] += psum[Cout, nij]   (SFU)',ind:4,dim:1}];
 WS.static=function(){let s=tx(32,48,'Weight Stationary Dataflow','t');
   s+=legend(['x[Cin, nij] is flattened from','  padded x[Cin, H, W] (8×10×10)','w[Cout, Cin, kij] is flattened from','  w[Cout, Cin, ky, kx] (8×8×3×3)','o[Cout, o_nij] is flattened from','  o[Cout, Ho, Wo] (8×8×8)','For PE(r, c): store w[Cout, Cin, kij] where','  Cin = 4·ti + r, Cout = 4·to + c','row r reads x[Cin, nij] from L0','column c sends psum[Cout, nij] to OFIFO','time = nij (0…99, 100 steps per pass)','PE sum: psum[Cout, nij] = Σ of 4 Cin','SFU: o[Cout, 8(y−ky) + (x−kx)] += psum, or drop']);
-  s+=glue()+frame()+peDetail('w','psum','psum′');
-  s+=tx(1185,790,'Each PE keeps one w for a whole pass.')+tx(1185,814,'x flows east, psum flows south.')+tx(1185,838,'The SFU adds 9 kij × 2 ti = 18 psums')+tx(1185,862,'into each o[Cout, o_nij].');
+  s+=glue()+'<g transform="translate(0,75)">'+frame()+peDetail('w','psum','psum′');
+  s+=tx(1185,790,'Each PE keeps one w for a whole pass.')+tx(1185,814,'x flows east, psum flows south.')+tx(1185,838,'The SFU adds 9 kij × 2 ti = 18 psums')+tx(1185,862,'into each o[Cout, o_nij].')+'</g>';
   return s;};
 WS.cur=function(g){const sg=findSeg(this.segs,g);return Object.assign({l:g-sg.start},sg);};
 WS.lineOn=S=>({wL:[0,1,2,3],ex:[0,1,2,4,5,6]})[S.st];
@@ -194,7 +194,7 @@ WS.tensors=function(S){const li=Math.floor(S.l),st=S.st;let s='';
     ol=`SFU accumulators, Cout ${S.to*4}–${S.to*4+3}: ${prev} of 18 psums so far`;}
   else{const to=Math.floor(li/NO),q=li%NO;of=o=>({fill:to>0||o<q?'#5ac05a':'rgb(91,85,201)',stroke:o===q?'#b0281e':null});ol=`ReLU on Cout ${to*4}–${to*4+3}; green = done`;}
   s+=drawO(of,ch=>S.ph===2||Math.floor(ch/4)===S.to?COLC[ch%4]:'#f7f7f9',ol);
-  s+=loopPanel(this.lines,this.vals(S),this.lineOn(S));return s;};
+  s+='<g transform="translate(0,75)">'+loopPanel(this.lines,this.vals(S),this.lineOn(S))+'</g>';return s;};
 WS.array=function(S){const l=S.l,li=Math.floor(l+1e-9),st=S.st;let s='';
   const to=S.ph===1?S.to:Math.floor(li/NO),ti=S.ph===1?S.ti:0,kij=S.ph===1?S.kij:8;
   const cin=r=>ti*4+r,cout=c=>to*4+c;
@@ -256,8 +256,8 @@ OS.lines=[
   {t:'o[Cout, o_nij] → OFIFO → output   (no SFU add)',ind:2}];
 OS.static=function(){let s=tx(32,48,'Output Stationary Dataflow','t');
   s+=legend(['x[Cin, nij] is flattened from','  padded x[Cin, H, W] (8×10×10)','w[Cout, Cin, kij] is flattened from','  w[Cout, Cin, ky, kx] (8×8×3×3)','o[Cout, o_nij] is flattened from','  o[Cout, Ho, Wo] (8×8×8)','For PE(r, c): store o[Cout, o_nij] where','  o_nij = 4·o_tile + r, Cout = 4·to + c','row r reads x[Cin, 10(oy+ky)+(ox+kx)] from L0','column c reads w[Cout, Cin, kij] from IFIFO','time = Cin × kij (8 × 9 = 72 steps per pass)','PE sum: o[Cout, o_nij] = Σ of 72 w·x','SFU: none, finished o goes straight out']);
-  s+=glue()+frame()+peDetail('psum','w','w');
-  s+=tx(1185,790,'Each PE keeps one o for a whole pass.')+tx(1185,814,'x flows east, w flows south.')+tx(1185,838,'The PE adds 8 Cin × 9 kij = 72 terms')+tx(1185,862,'into its o, so the SFU adds nothing.');
+  s+=glue()+'<g transform="translate(0,75)">'+frame()+peDetail('psum','w','w');
+  s+=tx(1185,790,'Each PE keeps one o for a whole pass.')+tx(1185,814,'x flows east, w flows south.')+tx(1185,838,'The PE adds 8 Cin × 9 kij = 72 terms')+tx(1185,862,'into its o, so the SFU adds nothing.')+'</g>';
   return s;};
 OS.cur=WS.cur;
 OS.le=S=>S.st==='ex'?S.l:99;
@@ -288,11 +288,16 @@ OS.tensors=function(S){const li=Math.floor(S.l),le=this.le(S),o0=S.g*4;let s='';
       if(o<o0+4){const r=o-o0;if(S.st==='pW'&&r>=3-li)return{fill:'#5ac05a',stroke:r===3-li?'#b0281e':null};
         const cnt=cl(Math.floor(le)-r,0,72);return{fill:`rgba(91,85,201,${(0.1+0.9*cnt/72).toFixed(2)})`,stroke:'#b0281e'};}return null;},
     ch=>Math.floor(ch/4)<=S.to?COLC[ch%4]:'#f7f7f9',`Cout ${S.to*4}–${S.to*4+3}: o_nij ${o0}–${o0+3} in the array; green = done`);
-  s+=loopPanel(this.lines,this.vals(S),this.lineOn(S));return s;};
+  s+='<g transform="translate(0,75)">'+loopPanel(this.lines,this.vals(S),this.lineOn(S))+'</g>';return s;};
 OS.array=function(S){const l=S.l,li=Math.floor(l+1e-9),st=S.st;let s='';
   const to=S.to,o0=S.g*4,cout=c=>to*4+c,le=this.le(S),lef=st==='ex'?l:99;
   const pushed=72,popped=k=>cl(Math.floor(le)-k+1,0,72);
-  for(let c=0;c<4;c++)s+=hl(COLX[c]-50,282,`Cout ${cout(c)} · IFIFO ${Math.max(0,pushed-popped(c))}`,COLC[c],'l',14);
+  for(let c=0;c<4;c++){s+=hl(COLX[c]-36,202,`c${c} · Cout ${cout(c)}`,COLC[c]);
+    s+=`<rect x="${COLX[c]-70}" y="212" width="140" height="88" rx="4" fill="#fff" stroke="#3d4450" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    if(st==='ex'){const it=[];for(let q=popped(c);q<pushed;q++){const {c:cc,k}=this.ck(q);it.push(`w[${cout(c)},${cc},${k}]`);}
+      it.slice(0,2).forEach((lab,i)=>s+=chip(COLX[c],258-26*i,lab,COLC[c]));
+      if(it.length>2)s+=tx(COLX[c]+66,226,`+${it.length-2}`,'s','text-anchor="end"');}}
+  s+=tx(COLX[0]-78,256,'IFIFO','s','text-anchor="end"')+tx(COLX[0]-78,272,'(column FIFOs,','s','text-anchor="end"')+tx(COLX[0]-78,288,'oldest at bottom)','s','text-anchor="end"');
   for(let r=0;r<4;r++)s+=hl(26,ROWY[r]+6,`r${r}: o_nij ${o0+r}`,'#e9e3ff','l',13);
   for(let r=0;r<4;r++)for(let c=0;c<4;c++){const d=Math.floor(le)-r-c-1,act=st==='ex'&&d>=0&&d<72,cnt=cl(Math.floor(le)-r-c,0,72);
     s+=peBox(COLX[c],ROWY[r],COLC[c],act,false);
@@ -302,8 +307,8 @@ OS.array=function(S){const l=S.l,li=Math.floor(l+1e-9),st=S.st;let s='';
     for(let r=0;r<4;r++){const it=[];for(let q=popped(r);q<pushed;q++){const {c,k}=this.ck(q);it.push([`x[${c},${nijOf(o0+r,k)}]`,isPad(nijOf(o0+r,k))?PADC:ROWC[c%4]]);}
       s+=l0Queue(r,it);}
     for(let c=0;c<4;c++){const lo=Math.max(0,Math.ceil(lef-c-1-3.6)),hi=Math.min(71,Math.floor(lef-c));
-      for(let q=lo;q<=hi;q++){const v=pos(lef-(q+c+1));if(v>3.6)continue;const {c:cc,k}=this.ck(q);
-        s+=chip(COLX[c],ROWY[0]-55+Math.max(v,0)*110,`w[${cout(c)},${cc},${k}]`,COLC[c],v<0?1+v:v>3?1-(v-3)/0.6:1);}}
+      for(let q=lo;q<=hi;q++){const v=pos(lef-(q+c+1));if(v>3.6||v<-1)continue;const {c:cc,k}=this.ck(q);
+        s+=chip(COLX[c],v<0?moving(284,ROWY[0]-55,v+1):ROWY[0]-55+v*110,`w[${cout(c)},${cc},${k}]`,COLC[c],v>3?1-(v-3)/0.6:1);}}
     for(let r=0;r<4;r++){const lo=Math.max(0,Math.ceil(lef-r-1-3.6)),hi=Math.min(71,Math.floor(lef-r));
       for(let q=hi;q>=lo;q--){const u=pos(lef-(q+r+1));if(u>3.6||u<-1)continue;const x=u<0?moving(HEAD,PE0X,u+1):PE0X+u*190;const {c:cc,k}=this.ck(q);
         s+=chip(x,ROWY[r],`x[${cc},${nijOf(o0+r,k)}]`,isPad(nijOf(o0+r,k))?PADC:ROWC[cc%4],u>3?1-(u-3)/0.6:1);}}}
@@ -336,7 +341,7 @@ function draw(){const g=Math.floor(tau+1e-9),S=cur.cur(cl(g,0,cur.total-1));S.l=
     document.querySelectorAll('.blk').forEach(b=>b.classList.toggle('on',b.dataset.st===S.st));
     document.querySelectorAll('.ph').forEach(p=>p.classList.toggle('on',+p.dataset.ph===S.ph-1));
     const on=document.querySelector('.blk.on');if(on&&playing)on.scrollIntoView({block:'nearest',inline:'nearest'});}
-  $('dyn').innerHTML=cur.array(S);}
+  $('dyn').innerHTML='<g transform="translate(0,75)">'+cur.array(S)+'</g>';}
 function stop(){playing=false;$('bPlay').textContent='▶ play';}
 function loop(ts){const dt=last==null?0:Math.min((ts-last)/1000,0.1);last=ts;
   if(playing&&target==null){acc+=dt;if(acc>=0.9){acc=0;if(tau>=cur.total-1)stop();else target=Math.floor(tau)+1;}}
