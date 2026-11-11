@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Systolic Dataflow Animation</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap">
+</head>
+<body>
+<style>
+/* Layout: sticky left sidebar (controls, execution process, status) beside one Lucid-style board. Single light theme on purpose, to match the course figures. */
+:root{
+  color-scheme:light;
+  --board:#f2f3f5; --ink:#1b1b1b; --arrow:#3d4450; --muted:#5c6470; --line:#cfd3da; --side:#e9ebef;
+  --hand:"Patrick Hand","Comic Sans MS","Segoe Print",cursive;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{background:var(--board);color:var(--ink);font-family:var(--hand);font-size:17px}
+.app{display:grid;grid-template-columns:300px minmax(0,1fr);min-height:100%}
+.side{position:sticky;top:0;height:100vh;overflow-y:auto;background:var(--side);border-right:1px solid var(--line);
+  padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:14px;padding-block:calc(12px + env(safe-area-inset-top,0px)) 16px;display:flex;flex-direction:column;gap:10px}
+.main{min-width:0;padding-left:12px;padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:8px 24px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ctl{display:grid;grid-template-columns:1fr auto 1fr;gap:6px}
+button{font:inherit;font-size:16px;color:var(--ink);background:#fff;border:2px solid var(--ink);border-radius:6px;padding:3px 8px;cursor:pointer}
+button[aria-selected="true"]{background:var(--ink);color:#fff}
+button:focus-visible,input:focus-visible,.blk:focus-visible{outline:3px solid #6b8fd6;outline-offset:2px}
+.pos{font-size:17px;text-align:center}
+input[type=range]{width:100%;accent-color:var(--arrow)}
+.sec{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+.phases{display:flex;flex-direction:column;gap:10px}
+.ph{display:flex;flex-direction:column;gap:6px}
+.ph h3{margin:0;font-weight:400;font-size:15px;border-left:3px solid var(--ink);padding:1px 6px}
+.ph.on h3{background:#fff7a1}
+.cols{display:flex;flex-direction:column;gap:6px}
+.blk{display:flex;flex-direction:column;cursor:pointer;opacity:.42;transition:opacity .2s;border-radius:7px}
+.blk div{border:1.5px solid var(--ink);font-size:14px;line-height:1.15;padding:4px 6px;text-align:center;min-height:26px;display:flex;align-items:center;justify-content:center}
+.blk div:first-child{border-radius:6px 6px 0 0}.blk div:last-child{border-radius:0 0 6px 6px}.blk div:only-child{border-radius:6px}
+.blk div+div{border-top:none}
+.blk small{font-size:12.5px;color:var(--muted);text-align:right;margin-top:2px}
+.blk.on{opacity:1}
+.blk.on div{border-width:3px}
+.status{margin:0;font-size:16.5px;line-height:1.35;background:#fff;border:1.5px solid var(--line);border-radius:8px;padding:8px 10px}
+.status b{background:#fff7a1;padding:0 4px;font-weight:400}
+.board{overflow-x:auto}
+svg{display:block;width:100%;min-width:980px;height:auto}
+svg text{font-family:var(--hand);fill:var(--ink)}
+.t{font-size:30px}.l{font-size:17px}.c{font-size:14.5px;text-anchor:middle}.s{font-size:13px;fill:var(--muted)}
+.pl{font-size:15px;text-anchor:middle}.pm{font-size:12.5px;text-anchor:middle;fill:#333}.lp{font-size:15.5px}
+[data-loop]{cursor:pointer}
+@media (max-width:820px){.app{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;border-right:none;border-bottom:1px solid var(--line);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}.main{padding-left:max(16px,env(safe-area-inset-left,0px))}}
+@media (prefers-reduced-motion:reduce){.blk{transition:none}}
+</style>
+
+<div class="app">
+  <aside class="side">
+    <div class="tabs" role="tablist">
+      <button id="tWS" role="tab" aria-selected="true">Weight Stat.</button>
+      <button id="tOS" role="tab" aria-selected="false">Output Stat.</button>
+    </div>
+    <div class="ctl">
+      <button id="bPrev" aria-label="Previous cycle">◀ 1 cycle</button>
+      <button id="bPlay">▶ play</button>
+      <button id="bNext" aria-label="Next cycle">1 cycle ▶</button>
+    </div>
+    <div class="pos" id="posTxt"></div>
+    <input type="range" id="scrub" min="0" max="1" step="1" value="0" aria-label="Cycle in the whole layer">
+    <p class="status" id="status"></p>
+    <div class="sec">Execution process (click to jump)</div>
+    <div class="phases" id="proc"></div>
+  </aside>
+  <main class="main">
+    <div class="board"><svg id="svg" viewBox="0 0 1560 975" role="img" aria-label="Systolic array dataflow animation">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#3d4450"/></marker></defs>
+      <g id="stat"></g><g id="ten"></g><g id="dyn"></g></svg></div>
+  </main>
+</div>
+
+<script>
+/* ---------- constants & helpers ---------- */
+const N=4,PW=10,NIJ=PW*PW,OW=8,NO=OW*OW;
+const ROWC=['#fff7a1','#ffdda6','#fc9432','#f7b7a3'],COLC=['#cfe4ff','#c3f7c8','#ffd9d9','#c6efe9'],PS='#dcdcff',SFUC='#c9b6f2',GRAY='#e4e6ea',DONE='#b9bfc9';
+const COLX=[520,710,900,1090],ROWY=[360,470,580,690],HEAD=310,PE0X=COLX[0]-95;
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ease=f=>{if(RM)return f>0?1:0;f=Math.min(1,Math.max(0,f/0.5));return f*f*(3-2*f)};
+const pos=u=>{const fl=Math.floor(u);return fl+ease(u-fl)};
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const cw=s=>s.length*7.1+14;
+function chip(x,y,label,fill,op=1,side){op=cl(op,0,1);if(op<=0)return'';const w=cw(label);
+  return`<g opacity="${op.toFixed(2)}"><rect x="${x-w/2}" y="${y-11}" width="${w}" height="22" rx="2" fill="${fill}"/><text x="${x}" y="${y+5}" class="c">${label}</text>${side?`<text x="${x+w/2+5}" y="${y+5}" class="s">${side}</text>`:''}</g>`}
+const ar=(x1,y1,x2,y2,both)=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#3d4450" stroke-width="2.5" marker-end="url(#ah)"${both?' marker-start="url(#ah)"':''}/>`;
+const tx=(x,y,s,c='l',extra='')=>`<text x="${x}" y="${y}" class="${c}" ${extra}>${s}</text>`;
+const hl=(x,y,s,fill,c='l',sz=16)=>{const w=s.length*sz*0.44+10;return`<rect x="${x-5}" y="${y-sz+1}" width="${w}" height="${sz+6}" fill="${fill}"/>`+tx(x,y,s,c,`font-size="${sz}"`)};
+const peBox=(x,y,fill,active,dim)=>`<rect x="${x-54}" y="${y-37}" width="108" height="74" rx="6" fill="${fill}" stroke="#1b1b1b" stroke-width="${active?4:2}" opacity="${dim?0.55:1}"/>`;
+const sp=s=>s.replace(/ /g,'&#160;');
+const nijOf=(o,k)=>(Math.floor(o/OW)+Math.floor(k/3))*PW+(o%OW+k%3);   // padded input pixel for output o at tap k
+const isPad=n=>{const y=Math.floor(n/PW),x=n%PW;return y===0||x===0||y===PW-1||x===PW-1;};
+const yx=n=>`(${Math.floor(n/PW)},${n%PW})`,oyx=o=>`(${Math.floor(o/OW)},${o%OW})`;
+
+function frame(){
+  let s='';
+  COLX.forEach(x=>{s+=ar(x,292,x,ROWY[0]-40);for(let r=0;r<3;r++)s+=ar(x,ROWY[r]+37,x,ROWY[r+1]-40);s+=ar(x,ROWY[3]+37,x,767);
+    s+=`<rect x="${x-70}" y="770" width="140" height="82" rx="4" fill="#fff" stroke="#3d4450" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    s+=ar(x,853,x,869);s+=ar(x,905,x,935);s+=tx(x,958,'output','s','text-anchor="middle"');});
+  s+=tx(COLX[0]-78,800,'OFIFO','s','text-anchor="end"')+tx(COLX[0]-78,893,'SFU','s','text-anchor="end"');
+  ROWY.forEach(y=>{s+=`<rect x="114" y="${y-19}" width="236" height="38" rx="4" fill="#fff" stroke="#3d4450" stroke-width="1.5" stroke-dasharray="5 4"/>`;
+    s+=ar(352,y,COLX[0]-56,y);for(let c=0;c<3;c++)s+=ar(COLX[c]+54,y,COLX[c+1]-56,y);});
+  s+=tx(114,ROWY[3]+38,'L0 (row FIFOs, oldest on the right)','s');
+  return s;}
+function peDetail(center,top,bot){const px=1370,py=650;let s='';
+  s+=`<rect x="${px-48}" y="${py-37}" width="96" height="74" rx="6" fill="${PS}" stroke="#1b1b1b" stroke-width="2"/>`+tx(px,py+6,center,'pl');
+  s+=tx(px,py-84,top,'pl')+ar(px,py-76,px,py-40)+ar(px,py+37,px,py+74)+tx(px,py+96,bot,'pl');
+  s+=tx(px-100,py+6,'x','pl')+ar(px-92,py,px-50,py)+ar(px+48,py,px+90,py)+tx(px+100,py+6,'x','pl');return s;}
+/* tensors */
+function sheets(x0,y0,size,colorOf){let s='';for(let ch=7;ch>=1;ch--)s+=`<rect x="${x0+ch*5}" y="${y0-ch*5}" width="${size}" height="${size}" fill="${colorOf(ch)}" stroke="#1b1b1b" stroke-width="1.3"/>`;return s;}
+function drawX(cellFill,colorOf,label){const x0=418,y0=88,cs=11;let s=sheets(x0,y0,PW*cs,colorOf);
+  s+=`<rect x="${x0-1}" y="${y0-1}" width="${PW*cs+2}" height="${PW*cs+2}" fill="${colorOf(0)}" stroke="#1b1b1b" stroke-width="1.6"/>`;
+  for(let n=0;n<NIJ;n++){const f=cellFill(n)||(isPad(n)?GRAY:'#fffdf2');s+=`<rect x="${x0+(n%PW)*cs}" y="${y0+Math.floor(n/PW)*cs}" width="${cs-1}" height="${cs-1}" fill="${f}"><title>nij ${n} ${yx(n)}</title></rect>`;}
+  s+=tx(x0+35+PW*cs+4,y0-28,'Cin 7','s');
+  s+=tx(x0-4,236,'x[Cin, nij]  [8, 100]','l')+tx(x0-4,254,label,'s');return s;}
+function drawW(cellFill,box){const x0=650,y0=62,b=18,cs=5;let s=tx(x0-2,y0-8,'Cout 0','s')+tx(x0+6*b-6,y0-8,'7','s')+tx(x0-44,y0+10,'Cin 0','s')+tx(x0-14,y0+7*b+10,'7','s');
+  for(let c=0;c<8;c++)for(let m=0;m<8;m++)for(let k=0;k<9;k++)
+    s+=`<rect x="${x0+m*b+(k%3)*cs}" y="${y0+c*b+Math.floor(k/3)*cs}" width="${cs-.5}" height="${cs-.5}" fill="${cellFill(c,m,k)}"/>`;
+  if(box)s+=`<rect x="${x0+box.m0*b-2}" y="${y0+box.c0*b-2}" width="${box.mw*b+1}" height="${box.cw*b+1}" fill="none" stroke="#1b1b1b" stroke-width="2.5" rx="2"/>`;
+  s+=tx(x0-30,236,'w[Cout, Cin, kij]  [8, 8, 9]','l')+tx(x0-30,254,'drawn row = Cin, col = Cout, 3×3 = kij','s');return s;}
+function drawO(cellFill,colorOf,label){const x0=890,y0=88,cs=13;let s=sheets(x0,y0,OW*cs,colorOf);
+  s+=`<rect x="${x0-1}" y="${y0-1}" width="${OW*cs+2}" height="${OW*cs+2}" fill="#fff" stroke="#1b1b1b" stroke-width="1.6"/>`;
+  for(let o=0;o<NO;o++){const f=cellFill(o)||{fill:'#fff'};s+=`<rect x="${x0+(o%OW)*cs}" y="${y0+Math.floor(o/OW)*cs}" width="${cs-1}" height="${cs-1}" fill="${f.fill}" ${f.stroke?`stroke="${f.stroke}" stroke-width="2"`:''}><title>o_nij ${o} ${oyx(o)}</title></rect>`;}
+  s+=tx(x0+35+OW*cs+4,y0-28,'Cout 7','s');
+  s+=tx(x0-4,236,'o[Cout, o_nij]  [8, 64]','l')+tx(x0-4,254,label,'s');return s;}
+const glue=()=>tx(608,150,'×','t')+tx(852,150,'=','t');
+function loopPanel(lines,vals,cur){let s=tx(1185,318,'Loop nest (click a line: jump to its next iteration)','s');
+  lines.forEach((L,i)=>{const y=346+i*28,on=cur.includes(i);
+    s+=`<g data-loop="${i}"><rect x="1180" y="${y-18}" width="372" height="25" rx="4" fill="${on?'#fff7a1':'transparent'}"/>`+
+      tx(1188+L.ind*15,y,sp(L.t),'lp',L.dim?'fill="#5c6470"':'')+(vals[i]?tx(1548,y,vals[i],'lp','text-anchor="end" fill="#b0281e"'):'')+'</g>';});return s;}
+
+const PADC='#c9ccd3';
+const legend=ls=>ls.map((l,i)=>tx(l.startsWith('  ')?52:32,78+i*17.3,sp(l.trim()),'l','font-size="14"')).join('');
+/* L0 row queue: show the 2 oldest entries + count */
+function l0Queue(r,items,color){let s='';if(!items.length)return s;
+  items.slice(0,2).forEach((it,i)=>s+=Array.isArray(it)?chip(HEAD-80*(i+1),ROWY[r],it[0],it[1]):chip(HEAD-80*(i+1),ROWY[r],it,color));
+  if(items.length>2)s+=tx(348,ROWY[r]-24,`+${items.length-2} more waiting`,'s','text-anchor="end"');return s;}
+function moving(x0,x1,f){return x0+(x1-x0)*f;}
+function schedule(build){const segs=[];let T=0;build((st,len,info)=>{segs.push(Object.assign({st,len,start:T},info));T+=len;});return{segs,total:T};}
+function findSeg(segs,g){let lo=0,hi=segs.length-1;while(lo<hi){const mid=(lo+hi+1)>>1;if(segs[mid].start<=g)lo=mid;else hi=mid-1;}return segs[lo];}
+
+/* ================= WEIGHT STATIONARY ================= */
+const WS={name:'ws',T0:0};
+Object.assign(WS,schedule(add=>{
+  for(let p=0;p<36;p++){const info={ph:1,p,kij:Math.floor(p/4),to:Math.floor(p/2)%2,ti:p%2};
+    add('wL',2*N+3,info);add('ex',NIJ+8,info);}
+  }));
+WS.passIdx=(kij,to,ti)=>kij*4+to*2+ti;
+WS.oOf=(n,kij)=>{const oy=Math.floor(n/PW)-Math.floor(kij/3),ox=n%PW-kij%3;return(oy<0||ox<0||oy>=OW||ox>=OW)?-1:oy*OW+ox;};
+WS.proc=[
+  {h:'for kij × to × ti = 36 times',cols:[
+    ['wL',[['Weight Pop from L0','#dcdcff'],['Weight Load to PE','#fff7a1']],'11 cyc (wavefront)'],
+    ['ex',[['Activation Pop from L0','#cfe4ff'],['Execution','#ffdda6'],['Psum push to OFIFO','#c3f7c8'],['Psum pop from OFIFO','#c3f7c8'],['Accumulation in SFU','#ffd9d9']],'108 cyc (∝ nij)']]}];
+WS.lines=[
+  {t:'for kij = 0:8   (kernel tap)',ind:0},{t:'for to = 0:1   (Cout tile)',ind:1},{t:'for ti = 0:1   (Cin tile)',ind:2},
+  {t:'load w[Cout, Cin, kij]: L0 → PE',ind:3},
+  {t:'for nij = 0:99   (time)',ind:3},{t:'psum[Cout, nij] = Σ w[Cout, Cin, kij]·x[Cin, nij]',ind:4,dim:1},
+  {t:'o[Cout, o_nij] += psum[Cout, nij]   (SFU)',ind:4,dim:1}];
+WS.static=function(){let s=tx(32,48,'Weight Stationary Dataflow','t');
+  s+=legend(['x[Cin, nij] is flattened from','  padded x[Cin, H, W] (8×10×10)','w[Cout, Cin, kij] is flattened from','  w[Cout, Cin, ky, kx] (8×8×3×3)','o[Cout, o_nij] is flattened from','  o[Cout, Ho, Wo] (8×8×8)','For PE(r, c): store w[Cout, Cin, kij] where','  Cin = 4·ti + r, Cout = 4·to + c','row r reads x[Cin, nij] from L0','column c sends psum[Cout, nij] to OFIFO','time = nij (0…99, 100 steps per pass)','PE sum: psum[Cout, nij] = Σ of 4 Cin','SFU: o[Cout, 8(y−ky) + (x−kx)] += psum, or drop']);
+  s+=glue()+frame()+peDetail('w','psum','psum′');
+  s+=tx(1185,790,'Each PE keeps one w for a whole pass.')+tx(1185,814,'x flows east, psum flows south.')+tx(1185,838,'The SFU adds 9 kij × 2 ti = 18 psums')+tx(1185,862,'into each o[Cout, o_nij].');
+  return s;};
+WS.cur=function(g){const sg=findSeg(this.segs,g);return Object.assign({l:g-sg.start},sg);};
+WS.lineOn=S=>({wL:[0,1,2,3],ex:[0,1,2,4,5,6]})[S.st];
+WS.vals=function(S){const li=Math.floor(S.l);const v=Array(7).fill('');
+  v[0]=`kij = ${S.kij}`;v[1]=`to = ${S.to}`;v[2]=`ti = ${S.ti}`;if(S.st==='ex'){const n=li-1;v[4]=n>=0&&n<NIJ?`nij = ${n}`:n<0?'—':'drain';}return v;};
+WS.jump=function(i,g){const S=this.cur(g),first=f=>{const x=this.segs.find(f);return x?x.start:this.total-1;},P=S.p;
+  switch(i){case 0:return first(x=>x.p>=(S.kij+1)*4&&x.st==='wL');
+    case 1:return first(x=>x.p>=(Math.floor(P/2)+1)*2&&x.st==='wL');
+    case 2:return first(x=>x.p>=P+1&&x.st==='wL');
+    case 3:return S.st==='wL'?g+1:first(x=>x.p>=P+1&&x.st==='wL');
+    case 4:case 5:case 6:return S.st==='ex'?g+1:first(x=>x.p===P&&x.st==='ex');}return g;};
+WS.jumpStage=function(st,g){const S=this.cur(g);const P=S.ph===1?S.p:0;const f=this.segs.find(x=>x.st===st&&(x.p===undefined||x.p===P));return f?f.start:g;};
+WS.tensors=function(S){const li=Math.floor(S.l),st=S.st;let s='';
+  let xf=()=>null,xl='';
+  if(st==='ex'){const n=li-1;xf=q=>q===n?'#3d4450':q<n?'#ffe58f':'#ffd0a0';xl=n>=0&&n<NIJ?`row 0 at nij ${n} ${yx(n)}; orange = still in L0`:'draining';}
+  s+=drawX(xf,ch=>S.ph===1&&Math.floor(ch/4)===S.ti?ROWC[ch%4]:'#f7f7f9',xl);
+  const P=S.ph===1?S.p:99;
+  s+=drawW((c,m,k)=>{const pp=this.passIdx(k,Math.floor(m/4),Math.floor(c/4));
+      if(pp===P){const mc=m%4,rc=c%4;const on=st==='wP'?mc<=li:st==='wL'?li>=rc+2*mc+1:true;return on?COLC[mc]:'#9aa0aa';}
+      return pp<P?DONE:'#eceef1';},S.ph===1?{c0:S.ti*4,m0:S.to*4,cw:4,mw:4}:null);
+  let of,ol;
+  if(S.ph===1){const prev=S.kij*2+S.ti,pn=li-8,curO=st==='ex'&&pn>=0&&pn<NIJ?this.oOf(pn,S.kij):-1;
+    of=o=>{const n=nijOf(o,S.kij),add=st==='ex'&&n+8<=li?1:0,d=prev+add;return{fill:d?`rgba(91,85,201,${(0.12+0.88*d/18).toFixed(2)})`:'#fff',stroke:o===curO?'#b0281e':null};};
+    ol=`SFU accumulators, Cout ${S.to*4}–${S.to*4+3}: ${prev} of 18 psums so far`;}
+  else{const to=Math.floor(li/NO),q=li%NO;of=o=>({fill:to>0||o<q?'#5ac05a':'rgb(91,85,201)',stroke:o===q?'#b0281e':null});ol=`ReLU on Cout ${to*4}–${to*4+3}; green = done`;}
+  s+=drawO(of,ch=>S.ph===2||Math.floor(ch/4)===S.to?COLC[ch%4]:'#f7f7f9',ol);
+  s+=loopPanel(this.lines,this.vals(S),this.lineOn(S));return s;};
+WS.array=function(S){const l=S.l,li=Math.floor(l+1e-9),st=S.st;let s='';
+  const to=S.ph===1?S.to:Math.floor(li/NO),ti=S.ph===1?S.ti:0,kij=S.ph===1?S.kij:8;
+  const cin=r=>ti*4+r,cout=c=>to*4+c;
+  for(let c=0;c<4;c++)s+=hl(COLX[c]-36,282,`c${c} · Cout ${cout(c)}`,COLC[c]);
+  for(let r=0;r<4;r++)s+=hl(26,ROWY[r]+6,`r${r} · Cin ${S.ph===1?cin(r):'-'}`,ROWC[r],'l',14);
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){
+    const has=S.ph===1&&st!=='wP'&&(st!=='wL'||li>=r+2*c+1);
+    const n=li-r-c-1,act=st==='ex'&&n>=0&&n<NIJ;
+    s+=peBox(COLX[c],ROWY[r],COLC[c],act,S.ph!==1);
+    s+=tx(COLX[c],ROWY[r]+(act||st==='wL'?-6:5),has?`w[${cout(c)},${cin(r)},${kij}]`:'·','pl');
+    if(act)s+=tx(COLX[c],ROWY[r]+18,`× x[${cin(r)},${n}]`,'pm');
+    if(st==='wL'){const lrq=li>=r+2*c+1?0:1,fwd=li>=r+2*c+2;s+=tx(COLX[c],ROWY[r]+18,`load_ready=${lrq}${fwd?' · LD→':''}`,'pm',lrq===0&&li===r+2*c+1?'fill="#b0281e"':'');}}
+  if(st==='wP')for(let r=0;r<4;r++){const it=[];for(let j=0;j<=Math.min(li,3);j++)it.push(`w[${cout(j)},${cin(r)},${kij}]`);s+=l0Queue(r,it,'#dcdcff');}
+  if(st==='wL')for(let r=0;r<4;r++){const it=[];
+    for(let j=0;j<4;j++){const A=r+j+1;if(li<A-1){it.push(`w[${cout(j)},${cin(r)},${kij}]`);continue;}
+      const u=pos(l-A);if(u>3.6)continue;const x=u<0?moving(HEAD,PE0X,u+1):PE0X+u*190;
+      s+=chip(x,ROWY[r],`w[${cout(j)},${cin(r)},${kij}]`,COLC[j],u>j+0.05?0.35:1);}
+    s+=l0Queue(r,it,'#dcdcff');}
+  if(st==='ex'){
+    for(let r=0;r<4;r++){const it=[];for(let n=Math.max(0,li-r+1);n<NIJ;n++)it.push([`x[${cin(r)},${n}]`,isPad(n)?PADC:ROWC[r]]);s+=l0Queue(r,it);
+      const lo=Math.max(0,Math.ceil(l-r-1-3.6)),hi=Math.min(NIJ-1,Math.floor(l-r));
+      for(let n=hi;n>=lo;n--){const u=pos(l-(n+r+1));if(u>3.6||u<-1)continue;const x=u<0?moving(HEAD,PE0X,u+1):PE0X+u*190;
+        s+=chip(x,ROWY[r],`x[${cin(r)},${n}]`,isPad(n)?PADC:ROWC[r],u>3?1-(u-3)/0.6:1);}}
+    for(let c=0;c<4;c++){const lo=Math.max(0,Math.ceil(l-c-1-4)),hi=Math.min(NIJ-1,Math.floor(l-c-1));
+      for(let n=lo;n<=hi;n++){const w=pos(l-(n+c+1));if(w>=4)continue;
+        const y=w<=3?ROWY[0]+58+w*110:ROWY[3]+58+(w-3)*(836-ROWY[3]-58);const r=Math.min(Math.floor(w),3);
+        s+=chip(COLX[c],y,`psum[${cout(c)},${n}]`,PS,1,w<3.9?(r===0?`sum of Cin ${cin(0)}`:`sum of Cin ${cin(0)}–${cin(r)}`):'');}
+      // OFIFO: rows wait until every column has them (pop at nij + 7)
+      const q=[];for(let n=Math.max(0,li-7);n<=Math.min(NIJ-1,li-c-5);n++)q.push(n);
+      q.forEach((n,k)=>s+=chip(COLX[c],836-k*22,`psum[${cout(c)},${n}]`,PS));}
+    const pn=li-8,ok=pn>=0&&pn<NIJ,o=ok?this.oOf(pn,kij):-1,f=ease(l-li);
+    for(let c=0;c<4;c++){if(ok)s+=chip(COLX[c],moving(858,888,f),`psum[${cout(c)},${pn}]`,PS,1-f);
+      const lab=!ok?'·':o<0?`drop: no o pixel`:`o[${cout(c)},${o}] += psum`;
+      s+=`<rect x="${COLX[c]-72}" y="872" width="144" height="32" rx="6" fill="${ok&&o>=0?SFUC:'#ece7f8'}" stroke="#1b1b1b" stroke-width="${ok?3:1.5}"/>`+tx(COLX[c],893,lab,'c');}}
+  else for(let c=0;c<4;c++){const lab=st==='relu'?`ReLU o[${cout(c)},${li%NO}]`:'·';
+    s+=`<rect x="${COLX[c]-72}" y="872" width="144" height="32" rx="6" fill="${st==='relu'?SFUC:'#ece7f8'}" stroke="#1b1b1b" stroke-width="${st==='relu'?3:1.5}"/>`+tx(COLX[c],893,lab,'c');}
+  return s;};
+WS.status=function(S){const li=Math.floor(S.l),ci=S.ti*4,co=S.to*4;
+  const h=`<b>pass ${S.p+1}/36: kij = ${S.kij}, to = ${S.to}, ti = ${S.ti}</b><br>`;
+  if(S.st==='wL')return h+`Load ${li+1}/11: PE(r,c) latches w[${co}+c, ${ci}+r, ${S.kij}] at cycle r + 2c + 1; faded weights pass by.`;
+  const pn=li-8,n=li-1;let t=n<0?`All 100 (10×10) inputs per row wait in L0; popping starts.`:n>=NIJ?`Drain ${li+1}/108: last psums reach the OFIFO.`:`Exec ${li+1}/108: nij = ${n}. x[${ci}+r, nij] goes east, psum goes south (w stays); PE(r,c) is on nij ${n}−r−c.`;
+  if(pn>=0&&pn<NIJ){const o=this.oOf(pn,S.kij),y=Math.floor(pn/PW),x=pn%PW,ky=Math.floor(S.kij/3),kx=S.kij%3;
+    t+=`<br>OFIFO pops nij = ${pn} = (${y}, ${x}) → (oy, ox) = (y−${ky}, x−${kx}) = (${y-ky}, ${x-kx}) → `+(o<0?`outside 8×8, <b>drop</b>.`:`<b>o_nij ${o}</b> += psum.`);}
+  return h+t;};
+
+/* ================= OUTPUT STATIONARY ================= */
+const OS={name:'os',S:72,EX:79};
+Object.assign(OS,schedule(add=>{
+  for(let p=0;p<32;p++){const info={ph:1,p,to:Math.floor(p/16),g:p%16};add('ex',OS.EX,info);add('oP',5,info);add('pW',4,info);}}));
+OS.ck=s=>({c:Math.floor(s/9),k:s%9});
+OS.proc=[{h:'for to × o_tile = 32 times',cols:[
+  ['ex',[['Weight Pop from IFIFO','#dcdcff'],['Activation Pop from L0','#cfe4ff'],['Execution','#ffdda6']],'72 steps + 6 drain'],
+  ['oP',[['Psum push to OFIFO','#c3f7c8']],'drain 4 rows'],
+  ['pW',[['Psum pop from OFIFO','#c3f7c8']],'4 cyc → output']]}];
+OS.lines=[
+  {t:'for to = 0:1   (Cout tile)',ind:0},{t:'for o_tile = 0:15   (4 o_nij each)',ind:1},
+  {t:'for Cin = 0:7   (time)',ind:2},{t:'for kij = 0:8   (time)',ind:3},
+  {t:'o[Cout, o_nij] += w[Cout, Cin, kij]·x[Cin, nij′]',ind:4,dim:1},
+  {t:'o[Cout, o_nij] → OFIFO → output   (no SFU add)',ind:2}];
+OS.static=function(){let s=tx(32,48,'Output Stationary Dataflow','t');
+  s+=legend(['x[Cin, nij] is flattened from','  padded x[Cin, H, W] (8×10×10)','w[Cout, Cin, kij] is flattened from','  w[Cout, Cin, ky, kx] (8×8×3×3)','o[Cout, o_nij] is flattened from','  o[Cout, Ho, Wo] (8×8×8)','For PE(r, c): store o[Cout, o_nij] where','  o_nij = 4·o_tile + r, Cout = 4·to + c','row r reads x[Cin, 10(oy+ky)+(ox+kx)] from L0','column c reads w[Cout, Cin, kij] from IFIFO','time = Cin × kij (8 × 9 = 72 steps per pass)','PE sum: o[Cout, o_nij] = Σ of 72 w·x','SFU: none, finished o goes straight out']);
+  s+=glue()+frame()+peDetail('psum','w','w');
+  s+=tx(1185,790,'Each PE keeps one o for a whole pass.')+tx(1185,814,'x flows east, w flows south.')+tx(1185,838,'The PE adds 8 Cin × 9 kij = 72 terms')+tx(1185,862,'into its o, so the SFU adds nothing.');
+  return s;};
+OS.cur=WS.cur;
+OS.le=S=>S.st==='ex'?S.l:99;
+OS.lineOn=S=>({ex:[0,1,2,3,4],oP:[0,1,5],pW:[0,1,5]})[S.st];
+OS.vals=function(S){const v=Array(6).fill('');v[0]=`to = ${S.to}`;v[1]=`o_nij ${S.g*4}–${S.g*4+3}`;
+  const le=Math.floor(this.le(S))-1;if(S.st==='ex'){if(le>=0&&le<72){const {c,k}=this.ck(le);v[2]=`Cin = ${c}`;v[3]=`kij = ${k}`;}else v[3]=le<0?'—':'drain';}return v;};
+OS.jump=function(i,g){const S=this.cur(g),first=f=>{const x=this.segs.find(f);return x?x.start:this.total-1;};
+  const nextPass=()=>first(x=>x.p>=S.p+1&&x.st==='ex');
+  switch(i){case 0:return first(x=>x.p>=(S.to+1)*16&&x.st==='ex');
+    case 1:return nextPass();
+    case 2:{if(S.st==='ex'){const t=(Math.floor(Math.max(0,S.l-1)/9)+1)*9+1;if(t<=72)return S.start+t;}return nextPass();}
+    case 3:case 4:return S.st==='ex'&&S.l<72?g+1:nextPass();
+    case 5:return S.st==='ex'?first(x=>x.p===S.p&&x.st==='oP'):g+1;}return g;};
+OS.jumpStage=WS.jumpStage;
+OS.tensors=function(S){const li=Math.floor(S.l),le=this.le(S),o0=S.g*4;let s='';
+  const stepOf=r=>{const sr=Math.floor(le)-r-1;return sr>=0&&sr<72?sr:null;};
+  let cNow=null,xf=()=>null,xl='flush: tile finished';
+  const s0=stepOf(0);
+  if(S.st==='ex'&&s0!=null){const {c,k}=this.ck(s0);cNow=c;const win=new Set([...Array(9)].map((_,q)=>nijOf(o0,q)));
+    const cells=[0,1,2,3].map(r=>{const sr=stepOf(r);return sr!=null&&Math.floor(sr/9)===c?nijOf(o0+r,sr%9):-1;});
+    xf=n=>n===cells[0]?'#3d4450':cells.includes(n)?'#7b8390':win.has(n)?'#ffe58f':null;xl=`Cin ${c} · yellow = window of o_nij ${o0}`;}
+  else if(S.st==='ex')xl='draining';
+  s+=drawX(xf,ch=>ch===cNow?ROWC[ch%4]:'#f7f7f9',xl);
+  s+=drawW((c,m,k)=>{const t=Math.floor(m/4),st2=c*9+k;if(t!==S.to)return t<S.to?DONE:'#eceef1';
+      const popped=Math.floor(le)-(m%4)-1;if(st2===popped)return COLC[m%4];if(st2<popped)return DONE;
+      return S.st==='ex'?'#cfd2ff':'#e3e6ee';},{c0:0,m0:S.to*4,cw:8,mw:4});
+  s+=drawO(o=>{if(o<o0)return{fill:'#5ac05a'};
+      if(o<o0+4){const r=o-o0;if(S.st==='pW'&&r>=3-li)return{fill:'#5ac05a',stroke:r===3-li?'#b0281e':null};
+        const cnt=cl(Math.floor(le)-r,0,72);return{fill:`rgba(91,85,201,${(0.1+0.9*cnt/72).toFixed(2)})`,stroke:'#b0281e'};}return null;},
+    ch=>Math.floor(ch/4)<=S.to?COLC[ch%4]:'#f7f7f9',`Cout ${S.to*4}–${S.to*4+3}: o_nij ${o0}–${o0+3} in the array; green = done`);
+  s+=loopPanel(this.lines,this.vals(S),this.lineOn(S));return s;};
+OS.array=function(S){const l=S.l,li=Math.floor(l+1e-9),st=S.st;let s='';
+  const to=S.to,o0=S.g*4,cout=c=>to*4+c,le=this.le(S),lef=st==='ex'?l:99;
+  const pushed=72,popped=k=>cl(Math.floor(le)-k+1,0,72);
+  for(let c=0;c<4;c++)s+=hl(COLX[c]-50,282,`Cout ${cout(c)} · IFIFO ${Math.max(0,pushed-popped(c))}`,COLC[c],'l',14);
+  for(let r=0;r<4;r++)s+=hl(26,ROWY[r]+6,`r${r}: o_nij ${o0+r}`,'#e9e3ff','l',13);
+  for(let r=0;r<4;r++)for(let c=0;c<4;c++){const d=Math.floor(le)-r-c-1,act=st==='ex'&&d>=0&&d<72,cnt=cl(Math.floor(le)-r-c,0,72);
+    s+=peBox(COLX[c],ROWY[r],COLC[c],act,false);
+    if(st==='ex'){s+=tx(COLX[c],ROWY[r]+(act?-9:-2),`o[${cout(c)},${o0+r}]`,'pl');s+=tx(COLX[c],ROWY[r]+(act?8:16),`Σ ${cnt}/72`,'pm');
+      if(act){const {c:cc,k}=this.ck(d);s+=tx(COLX[c],ROWY[r]+24,`+ w·x  (Cin ${cc}, kij ${k})`,'pm');}}}
+  if(st==='ex'){
+    for(let r=0;r<4;r++){const it=[];for(let q=popped(r);q<pushed;q++){const {c,k}=this.ck(q);it.push([`x[${c},${nijOf(o0+r,k)}]`,isPad(nijOf(o0+r,k))?PADC:ROWC[c%4]]);}
+      s+=l0Queue(r,it);}
+    for(let c=0;c<4;c++){const lo=Math.max(0,Math.ceil(lef-c-1-3.6)),hi=Math.min(71,Math.floor(lef-c));
+      for(let q=lo;q<=hi;q++){const v=pos(lef-(q+c+1));if(v>3.6)continue;const {c:cc,k}=this.ck(q);
+        s+=chip(COLX[c],ROWY[0]-55+Math.max(v,0)*110,`w[${cout(c)},${cc},${k}]`,COLC[c],v<0?1+v:v>3?1-(v-3)/0.6:1);}}
+    for(let r=0;r<4;r++){const lo=Math.max(0,Math.ceil(lef-r-1-3.6)),hi=Math.min(71,Math.floor(lef-r));
+      for(let q=hi;q>=lo;q--){const u=pos(lef-(q+r+1));if(u>3.6||u<-1)continue;const x=u<0?moving(HEAD,PE0X,u+1):PE0X+u*190;const {c:cc,k}=this.ck(q);
+        s+=chip(x,ROWY[r],`x[${cc},${nijOf(o0+r,k)}]`,isPad(nijOf(o0+r,k))?PADC:ROWC[cc%4],u>3?1-(u-3)/0.6:1);}}}
+  if(st==='oP'){const w=pos(l);for(let r=0;r<4;r++)for(let c=0;c<4;c++){const p=Math.min(r+w,4),slot=836-(3-r)*22;
+    s+=chip(COLX[c],p<=3?ROWY[0]+p*110:ROWY[3]+(p-3)*(slot-ROWY[3]),`o[${cout(c)},${o0+r}]`,COLC[c]);}}
+  if(st==='pW'){const f=ease(l-li),r=3-li;for(let c=0;c<4;c++){for(let k=1;k<=r;k++)s+=chip(COLX[c],836-k*22,`o[${cout(c)},${o0+r-k}]`,COLC[c]);
+    s+=chip(COLX[c],moving(836,888,f),`o[${cout(c)},${o0+r}]`,COLC[c],1-f);}}
+  for(let c=0;c<4;c++){const on=st==='pW';s+=`<rect x="${COLX[c]-72}" y="872" width="144" height="32" rx="6" fill="${on?SFUC:'#ece7f8'}" stroke="#1b1b1b" stroke-width="${on?3:1.5}"/>`+tx(COLX[c],893,on?`pass o[${cout(c)},${o0+3-li}] → out`:'·','c');}
+  return s;};
+OS.status=function(S){const li=Math.floor(S.l),o0=S.g*4,co=S.to*4;
+  const h=`<b>pass ${S.p+1}/32: to = ${S.to}, o_nij = ${o0}–${o0+3}</b><br>`;
+  if(S.st==='oP')return h+`Push ${li+1}/5: all o done (72/72), rows drain south into OFIFO.`;
+  if(S.st==='pW')return h+`Pop ${li+1}/4: o[${co}–${co+3}, ${o0+3-li}] goes out; no SFU add needed.`;
+  const s=li-1;if(s<0)return h+`All 72 (8 Cin × 9 kij) inputs per row wait in L0 and 72 weights per column in IFIFO; popping starts.`;
+  if(s>=72)return h+`Drain ${li+1}/79: last terms reach the bottom-right PEs.`;
+  const {c,k}=this.ck(s),ky=Math.floor(k/3),kx=k%3;
+  return h+`Exec ${li+1}/79: Cin = ${c}, kij = ${k} = (${ky}, ${kx}). x[${c}, 10(oy+${ky}) + (ox+${kx})] goes east, w goes south (o stays); PE(r,c) is on step ${s+1}−r−c.`;};
+
+/* ================= driver ================= */
+const SIMS={ws:WS,os:OS};let cur=WS,tau=0,target=null,playing=false,last=null,lastKey=null,acc=0;
+const $=id=>document.getElementById(id);
+function buildProc(){$('proc').innerHTML=cur.proc.map((P,pi)=>`<div class="ph" data-ph="${pi}"><h3>${P.h}</h3><div class="cols">`+
+  P.cols.map(([id,bl,note])=>`<div class="blk" data-st="${id}" tabindex="0" role="button">${bl.map(([t,c])=>`<div style="background:${c}">${t}</div>`).join('')}<small>${note}</small></div>`).join('')+'</div></div>').join('');}
+function setTab(k){cur=SIMS[k];$('tWS').setAttribute('aria-selected',k==='ws');$('tOS').setAttribute('aria-selected',k==='os');
+  $('stat').innerHTML=cur.static();buildProc();$('scrub').max=cur.total-1;
+  tau=k==='ws'?cur.segs.find(x=>x.st==='ex').start+14:cur.segs.find(x=>x.st==='ex').start+14;target=null;stop();lastKey=null;draw();}
+function draw(){const g=Math.floor(tau+1e-9),S=cur.cur(cl(g,0,cur.total-1));S.l=tau-S.start;
+  if(g!==lastKey){$('ten').innerHTML=cur.tensors(S);$('status').innerHTML=cur.status(S);lastKey=g;$('scrub').value=g;
+    $('posTxt').textContent=`cycle ${g} / ${cur.total-1}`;
+    document.querySelectorAll('.blk').forEach(b=>b.classList.toggle('on',b.dataset.st===S.st));
+    document.querySelectorAll('.ph').forEach(p=>p.classList.toggle('on',+p.dataset.ph===S.ph-1));
+    const on=document.querySelector('.blk.on');if(on&&playing)on.scrollIntoView({block:'nearest',inline:'nearest'});}
+  $('dyn').innerHTML=cur.array(S);}
+function stop(){playing=false;$('bPlay').textContent='▶ play';}
+function loop(ts){const dt=last==null?0:Math.min((ts-last)/1000,0.1);last=ts;
+  if(playing&&target==null){acc+=dt;if(acc>=0.9){acc=0;if(tau>=cur.total-1)stop();else target=Math.floor(tau)+1;}}
+  if(target!=null){const d=target-tau,m=dt*2.6;if(Math.abs(d)<=m){tau=target;target=null}else tau+=Math.sign(d)*m;draw();}
+  requestAnimationFrame(loop);}
+function go(g){target=null;tau=cl(g,0,cur.total-1);lastKey=null;draw();}
+$('bPlay').onclick=()=>{if(playing){stop();return;}playing=true;acc=0.9;$('bPlay').textContent='❚❚ pause';};
+$('bNext').onclick=()=>{stop();const b=Math.floor((target??tau)+1e-9);if(b<cur.total-1)target=b+1;};
+$('bPrev').onclick=()=>{stop();go(Math.ceil((target??tau)-1e-9)-1);};
+$('scrub').oninput=e=>{stop();go(+e.target.value);};
+$('tWS').onclick=()=>setTab('ws');$('tOS').onclick=()=>setTab('os');
+$('svg').addEventListener('click',e=>{const g=e.target.closest('[data-loop]');if(!g)return;stop();const t=cur.jump(+g.dataset.loop,Math.floor(tau+1e-9));
+  if(t===Math.floor(tau)+1)target=t;else go(t);});
+$('proc').addEventListener('click',e=>{const b=e.target.closest('.blk');if(!b)return;stop();go(cur.jumpStage(b.dataset.st,Math.floor(tau+1e-9)));});
+$('proc').addEventListener('keydown',e=>{if(e.key==='Enter'){const b=e.target.closest('.blk');if(b){stop();go(cur.jumpStage(b.dataset.st,Math.floor(tau+1e-9)));}}});
+document.addEventListener('keydown',e=>{if(e.target.matches('input'))return;
+  if(e.key==='ArrowRight'){$('bNext').click();e.preventDefault();}else if(e.key==='ArrowLeft'){$('bPrev').click();e.preventDefault();}
+  else if(e.key===' '&&!e.target.matches('button,.blk')){$('bPlay').click();e.preventDefault();}});
+setTab('ws');requestAnimationFrame(loop);
+</script>
+
+</body>
+</html>
